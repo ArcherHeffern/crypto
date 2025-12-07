@@ -1,0 +1,1 @@
+Implementing Bitcoin by following [Whitepaper](https://bitcoin.org/bitcoin.pdf)
