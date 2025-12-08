@@ -72,10 +72,11 @@ class Block:
         b = bytearray()
         for transaction in self.transactions.log:
             b += transaction.as_bytes()
-        nonce = 0
+        nonce = 1
         while True:
+            if nonce % 1_000_000 == 0:
+                print(nonce)
             h = sha256(b + str(nonce).encode()).digest()
-            print(nonce)
             for i in range(self.required_work):
                 if h[i] != 0:
                     break
