@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from hashlib import sha256
 from pprint import pprint
+from typing import Optional
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from random import choice, randint
 import crypto
@@ -11,47 +12,96 @@ class TransactionLog:
     log: list[Transaction] = field(default_factory=list)
 
     def append_transaction(
-        self, sender: crypto.Person, reciever_pub_keys: crypto.PublicKeys, amount: int
+        self, sender: crypto.PublicKeys, reciever: crypto.PublicKeys, amount: int
     ):
-        previous_transaction = (
-            self.log[len(self.log) - 2].to_bytes() if len(self.log) != 0 else b""
-        )
-        previous_transaction_hash = sha256(previous_transaction).digest()
-        previous_transaction_hash_signed = crypto.sign(
-            previous_transaction_hash, sender.signing_keys.priv
+        previous_transaction_hash = (
+            self.log[len(self.log) - 2].get_hash() if len(self.log) != 0 else b""
         )
 
-        next_owner_public_keys = reciever_pub_keys.encryption_key.public_bytes(
-            Encoding.DER, PublicFormat.PKCS1
-        ) + reciever_pub_keys.signing_key.public_bytes(Encoding.DER, PublicFormat.PKCS1)
-        next_owner_public_keys_signed = crypto.sign(
-            next_owner_public_keys, sender.signing_keys.priv
-        )
-
-        transaction = Transaction(
-            previous_transaction_hash_signed, next_owner_public_keys_signed, amount
-        )
+        transaction = Transaction(previous_transaction_hash, sender, reciever, amount)
         self.log.append(transaction)
 
 
 @dataclass
 class Transaction:
-    previous_transaction_hash_signed: crypto.Signature = field(repr=False)
-    next_owners_public_key_signed: crypto.Signature = field(repr=False)
+    previous_transaction_hash: bytes
+    sender: crypto.PublicKeys
+    reciever: crypto.PublicKeys
     amount: int
 
-    def to_bytes(self) -> bytes:
-        return (
-            self.previous_transaction_hash_signed + self.next_owners_public_key_signed
-        )
+    def get_signature(self, priv: crypto.SigningPrivateKey) -> crypto.Signature:
+        return crypto.sign(self.as_bytes(), priv)
 
-    def to_string(self) -> str:
-        return self.to_bytes().decode()
+    def get_hash(self) -> bytes:
+        return sha256(self.as_bytes()).digest()
+
+    def as_bytes(self) -> bytes:
+        b = bytearray()
+        b += self.previous_transaction_hash
+        b += self._public_keys_to_bytes(self.sender)
+        b += self._public_keys_to_bytes(self.reciever)
+        b += self.amount.to_bytes()
+        return b
+
+    @staticmethod
+    def _public_keys_to_bytes(public_keys: crypto.PublicKeys):
+        return public_keys.encryption_key.public_bytes(
+            Encoding.DER, PublicFormat.PKCS1
+        ) + public_keys.signing_key.public_bytes(Encoding.DER, PublicFormat.PKCS1)
+
+
+@dataclass
+class Block:
+    prev_hash: bytes
+    transactions: TransactionLog
+    nonce: Optional[int] = None
+    required_work: int = 2 # This is number of bytes needed to be 0. Multiply by 4 for bits. 
+
+    def get_hash(self) -> Optional[bytes]:
+        if self.nonce is None:
+            return None
+        b = bytearray()
+        for transaction in self.transactions.log:
+            b += transaction.as_bytes()
+        b += str(self.nonce).encode()
+        return sha256(b).digest()
+    
+    def compute_nonce(self) -> Optional[int]:
+        if self.nonce is not None:
+            return
+        b = bytearray()
+        for transaction in self.transactions.log:
+            b += transaction.as_bytes()
+        nonce = 0
+        while True:
+            h = sha256(b + str(nonce).encode()).digest()
+            print(nonce)
+            for i in range(self.required_work):
+                if h[i] != 0:
+                    break
+            else:
+                self.nonce = nonce
+                return nonce
+            nonce += 1
+
+            
+
+class BitcoinServer:
+    blockchain: list[Block]
 
 
 if __name__ == "__main__":
     people = [crypto.Person.create() for _ in range(10)]
-    transaction_log = TransactionLog()
+    transactions = TransactionLog()
+    print("Creating Transactions")
     for _ in range(10):
-        transaction_log.append_transaction(choice(people), choice(people).get_public_keys(), randint(0, 100))
-    pprint(transaction_log)
+        transactions.append_transaction(
+            choice(people).get_public_keys(),
+            choice(people).get_public_keys(),
+            randint(0, 100),
+        )
+    print("Computing Nonce")
+    block = Block(b"", transactions)
+    nonce = block.compute_nonce()
+    print(nonce)
+    print(block.get_hash())
