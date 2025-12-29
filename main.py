@@ -132,11 +132,11 @@ class BlockchainServer:
 
     """
 
-    def __init__(self, other_server_addresses: list[INetAddress], id: int):
-        if id <= 8000:
+    def __init__(self, other_server_addresses: list[INetAddress], address: INetAddress):
+        if address.port <= 8000:
             raise ValueError(f"Expected id >= 8000 but found '{id}'")
         # self.blockchain: list[Block] = []
-        self.id = id
+        self.address = address
         self.blockchain: list[int] = []
         self.sync_event = Event()
         self.workers = 2
@@ -165,14 +165,14 @@ class BlockchainServer:
     async def run(self) -> bool:
         for i in range(self.workers):
             q2m = MultiProcessQueue()
-            miner_id = f"{self.id}:{i}"
+            miner_id = f"{self.address.port}:{i}"
             p = Process(target=self.miner, args=(miner_id, q2m, self.q2c), daemon=True)
             p.start()
             ph = MinerHandle(p, q2m)
             self.miners[miner_id] = ph
 
         server = await start_server(
-            self.srv(), "127.0.0.1", self.id
+            self.srv(), self.address.host, self.address.port
         )  # TODO: Does this need to be passed the self paramterer explicitly?
         b_task = create_task(self.broadcaster())
         c_task = create_task(self.controller())
@@ -210,7 +210,7 @@ class BlockchainServer:
                 if not isinstance(gossip_res, Gossip):
                     continue
                 for address in gossip_res.addresses:
-                    if address not in other_servers:
+                    if address not in other_servers and address != self.address:
                         other_servers[address] = None
                         print(f"Found new address {address}")
 
@@ -240,7 +240,7 @@ class BlockchainServer:
             await sleep(0.1)
 
     def log(self, msg: Any):
-        print(f"{self.id}: {msg}")
+        print(f"{self.address.host}:{self.address.port}: {msg}")
 
     async def _broadcast(
         self, message: InterServerMessage, servers: Iterable[Optional[ServerHandle]]
@@ -310,7 +310,8 @@ class BlockchainServer:
                         )
                     case Gossip():
                         for addr in msg.addresses:
-                            self.other_servers[addr] = None
+                            if addr not in self.other_servers and addr != self.address:
+                                self.other_servers[addr] = None
                         s = (
                             sample(list(self.other_servers.keys()), k=self.gossip_size)
                             if len(self.other_servers) >= self.gossip_size
@@ -357,8 +358,12 @@ class BlockchainServer:
 
 
 async def main():
-    s1 = BlockchainServer([INetAddress("127.0.0.1", 8002)], 8001).run()
-    s2 = BlockchainServer([INetAddress("127.0.0.1", 8001)], 8002).run()
+    s1 = BlockchainServer(
+        [INetAddress("127.0.0.1", 8002)], INetAddress("127.0.0.1", 8001)
+    ).run()
+    s2 = BlockchainServer(
+        [INetAddress("127.0.0.1", 8001)], INetAddress("127.0.0.1", 8002)
+    ).run()
     await gather(s1, s2)
 
 
