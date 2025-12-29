@@ -200,11 +200,7 @@ class BlockchainServer:
                     continue
                 random_server.writer.write(gossip_msg)
                 awaitables.append(random_server.reader.readuntil(b"\n"))
-            print("BEFORE ----------")
-            responses: list[bytes] = await gather(
-                *awaitables
-            )  # TODO: Fix this bullshit from hanging.
-            print("AFTER -----------")
+            responses: list[bytes] = await gather(*awaitables)
             for response in responses:
                 gossip_res = self.m.loads(response.decode())
                 if not isinstance(gossip_res, Gossip):
@@ -264,6 +260,8 @@ class BlockchainServer:
                         self.log(f"Controller: Told solution recieved {event.solution}")
                         if self._is_solution():
                             self.blockchain.append(event.solution)
+                            if len(self.blockchain) % 10 == 9:
+                                print(self.blockchain)
                             # Come up with new problem to solve
                             new_problem = randint(1, 64)
                             for p in self.miners.values():
