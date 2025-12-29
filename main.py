@@ -1,9 +1,19 @@
 from abc import ABC
-from dataclasses import dataclass
+from inspect import signature
+from dataclasses import dataclass, asdict, is_dataclass
+from json import dumps, loads
 from multiprocessing import Process, Queue as MultiProcessQueue
 import time
-from typing import Any, Awaitable, Callable, Iterable, NoReturn, Optional
-from types import CoroutineType
+from typing import (
+    Any,
+    Awaitable,
+    Iterable,
+    Optional,
+    ClassVar,
+    Type,
+    get_args,
+    get_origin,
+)
 from random import randint, sample
 from asyncio import (
     Event,
@@ -18,7 +28,7 @@ from asyncio import (
     run,
 )
 from bitcoin import Block
-from serde import Model, fields, tags
+from marshall import DataclassMarshaller
 
 
 # Task : Allows me to group things together or just run something in the background
@@ -49,17 +59,20 @@ class INetAddress:
 # ============
 # Inter-Server Messages
 # ============
-class InterServerMessage(Model):
-    class Meta:
-        tag = tags.Internal(tag="species")
 
 
+@dataclass()
+class InterServerMessage(ABC): ...
+
+
+@dataclass
 class SolutionFound(InterServerMessage):
-    solution: fields.Int()  # type: ignore
+    solution: int
 
 
+@dataclass
 class Gossip(InterServerMessage):
-    addresses: fields.List()  # type: ignore
+    addresses: list[INetAddress]
 
 
 # ============
@@ -133,6 +146,11 @@ class BlockchainServer:
         self.other_servers: dict[INetAddress, Optional[ServerHandle]] = {
             address: None for address in self.other_server_addresses
         }
+
+        self.m = DataclassMarshaller[InterServerMessage]()
+        self.m.register("solution_found", SolutionFound)
+        self.m.register("gossip", Gossip)
+        self.m.register("inet_address", INetAddress)
         # Asyncio Concurrency
         self.q2controller: Queue[ControllerOp] = Queue()
         self.q2broadcaster: Queue[BroadcasterOp] = Queue()
@@ -174,22 +192,21 @@ class BlockchainServer:
                 if len(other_servers) >= self.gossip_size
                 else list(self.other_servers.values())
             )
-            gossip_msg = (
-                Gossip.from_dict({"addresses": [s.addr for s in random_servers if s]})
-                .to_json()
-                .encode()
-            )
+            gossip = Gossip(addresses=[s.addr for s in random_servers if s])
+            gossip_msg = self.m.dumps(gossip).encode()
             awaitables: list[Awaitable] = []
             for random_server in random_servers:
                 if random_server is None:
                     continue
                 random_server.writer.write(gossip_msg)
-                awaitables.append(random_server.reader.read())
+                awaitables.append(random_server.reader.readuntil(b"\n"))
             print("BEFORE ----------")
-            responses: list[bytes] = await gather(*awaitables) # TODO: Fix this bullshit from hanging. 
+            responses: list[bytes] = await gather(
+                *awaitables
+            )  # TODO: Fix this bullshit from hanging.
             print("AFTER -----------")
             for response in responses:
-                gossip_res = Gossip.from_json(response.decode())
+                gossip_res = self.m.loads(response.decode())
                 if not isinstance(gossip_res, Gossip):
                     continue
                 for address in gossip_res.addresses:
@@ -213,9 +230,7 @@ class BlockchainServer:
                 event = self.q2broadcaster.get_nowait()
                 match event:
                     case FoundSolutionOp():  # Broadcast solution
-                        print(
-                            f"Broadcaster: Broadcasting solution {event.solution}"
-                        )
+                        print(f"Broadcaster: Broadcasting solution {event.solution}")
                         msg = SolutionFound(solution=event.solution)
                         await self._broadcast(msg, other_servers.values())
                     case _:
@@ -230,7 +245,7 @@ class BlockchainServer:
     async def _broadcast(
         self, message: InterServerMessage, servers: Iterable[Optional[ServerHandle]]
     ):
-        data = message.to_json().encode()
+        data = self.m.dumps(message).encode()
         for server in servers:
             if server is None:
                 continue
@@ -285,8 +300,8 @@ class BlockchainServer:
             # - Gossip protocol
             print("Starting Server")
             while True:
-                msg = (await reader.read()).decode()
-                msg = InterServerMessage.from_dict(msg)
+                msg = (await reader.readuntil(b"\n")).decode()
+                msg = self.m.loads(msg)
                 match msg:
                     case SolutionFound():
                         self.log(f"server: Solution Recieved: {msg.solution}")
@@ -301,7 +316,7 @@ class BlockchainServer:
                             if len(self.other_servers) >= self.gossip_size
                             else list(self.other_servers.keys())
                         )
-                        writer.write(Gossip(addresses=s).to_json().encode())
+                        writer.write(self.m.dumps(Gossip(addresses=s)).encode())
                     case _:
                         raise NotImplementedError(f"Found {type(msg)}")
 
