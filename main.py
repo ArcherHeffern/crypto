@@ -1,7 +1,5 @@
 from abc import ABC
-from inspect import signature
-from dataclasses import dataclass, asdict, is_dataclass
-from json import dumps, loads
+from dataclasses import dataclass
 from multiprocessing import Process, Queue as MultiProcessQueue
 import time
 from typing import (
@@ -9,10 +7,6 @@ from typing import (
     Awaitable,
     Iterable,
     Optional,
-    ClassVar,
-    Type,
-    get_args,
-    get_origin,
 )
 from random import randint, sample
 from asyncio import (
@@ -28,6 +22,7 @@ from asyncio import (
     run,
 )
 from bitcoin import Block
+from crypto import Person
 from marshall import DataclassMarshaller
 
 
@@ -47,7 +42,7 @@ class ServerHandle:
 @dataclass
 class MinerHandle:
     process: Process
-    q2m: MultiProcessQueue[MinerOp]
+    q2m: MultiProcessQueue[InternalMiner]
 
 
 @dataclass(frozen=True)
@@ -66,56 +61,52 @@ class InterServerMessage(ABC): ...
 
 
 @dataclass
-class SolutionFound(InterServerMessage):
+class ExternalSolution(InterServerMessage):
     solution: int
+    # TODO: Include index of block for validation reasons
 
 
 @dataclass
-class Gossip(InterServerMessage):
+class ExternalGossip(InterServerMessage):
     addresses: list[INetAddress]
 
 
 # ============
 # Server Operations
 # ============
-class ControllerOp(ABC):
+class InternalController(ABC):
     # Base class for operations sent to the controller
     ...
 
 
-class BroadcasterOp(ABC):
+class InternalBroadcaster(ABC):
     # Base class for operations sent to the broadcaster
     ...
 
 
-class ServerOp(ABC):
+class InternalServerOp(ABC):
     # Base class for operations sent to the server
     ...
 
 
-class MinerOp(ABC):
+class InternalMiner(ABC):
     # Base class for operations sent to a miner
     ...
 
 
-# @dataclass
-# class GossipOp(ControllerOp):
-#     server_addresses: list[INetAddress]
-
-
 @dataclass
-class ToldSolutionOp(ControllerOp):
+class InternalSolutionTold(InternalController):
     solution: int
 
 
 @dataclass
-class FoundSolutionOp(ControllerOp, BroadcasterOp):
+class InternalSolutionFound(InternalController, InternalBroadcaster):
     miner_id: str
     solution: int
 
 
 @dataclass
-class OverrideProcessing(MinerOp):
+class InternalOverrideProcessing(InternalMiner):
     new_problem: int
 
 
@@ -148,19 +139,17 @@ class BlockchainServer:
         }
 
         self.m = DataclassMarshaller[InterServerMessage]()
-        self.m.register("solution_found", SolutionFound)
-        self.m.register("gossip", Gossip)
+        self.m.register("solution_found", ExternalSolution)
+        self.m.register("gossip", ExternalGossip)
         self.m.register("inet_address", INetAddress)
         # Asyncio Concurrency
-        self.q2controller: Queue[ControllerOp] = Queue()
-        self.q2broadcaster: Queue[BroadcasterOp] = Queue()
-        self.q2server: Queue[ServerOp] = Queue()
+        self.q2controller: Queue[InternalController] = Queue()
+        self.q2broadcaster: Queue[InternalBroadcaster] = Queue()
+        self.q2server: Queue[InternalServerOp] = Queue()
 
         # Multiprocessing Concurrency
-        # self.update_event = Event()
-        # self.shutdown_event = Event()
         self.miners: dict[str, MinerHandle] = {}
-        self.q2c: MultiProcessQueue[ControllerOp] = MultiProcessQueue()
+        self.q2c: MultiProcessQueue[InternalController] = MultiProcessQueue()
 
     async def run(self) -> bool:
         for i in range(self.workers):
@@ -171,9 +160,7 @@ class BlockchainServer:
             ph = MinerHandle(p, q2m)
             self.miners[miner_id] = ph
 
-        server = await start_server(
-            self.srv(), self.address.host, self.address.port
-        )  # TODO: Does this need to be passed the self paramterer explicitly?
+        server = await start_server(self.srv(), self.address.host, self.address.port)
         b_task = create_task(self.broadcaster())
         c_task = create_task(self.controller())
         async with server:
@@ -192,7 +179,7 @@ class BlockchainServer:
                 if len(other_servers) >= self.gossip_size
                 else list(self.other_servers.values())
             )
-            gossip = Gossip(addresses=[s.addr for s in random_servers if s])
+            gossip = ExternalGossip(addresses=[s.addr for s in random_servers if s])
             gossip_msg = self.m.dumps(gossip).encode()
             awaitables: list[Awaitable] = []
             for random_server in random_servers:
@@ -203,12 +190,12 @@ class BlockchainServer:
             responses: list[bytes] = await gather(*awaitables)
             for response in responses:
                 gossip_res = self.m.loads(response.decode())
-                if not isinstance(gossip_res, Gossip):
+                if not isinstance(gossip_res, ExternalGossip):
                     continue
                 for address in gossip_res.addresses:
                     if address not in other_servers and address != self.address:
                         other_servers[address] = None
-                        print(f"Found new address {address}")
+                        self.log(f"Found new address {address}")
 
             await sleep(0.1)
 
@@ -225,9 +212,9 @@ class BlockchainServer:
             if not self.q2broadcaster.empty():
                 event = self.q2broadcaster.get_nowait()
                 match event:
-                    case FoundSolutionOp():  # Broadcast solution
+                    case InternalSolutionFound():  # Broadcast solution
                         print(f"Broadcaster: Broadcasting solution {event.solution}")
-                        msg = SolutionFound(solution=event.solution)
+                        msg = ExternalSolution(solution=event.solution)
                         await self._broadcast(msg, other_servers.values())
                     case _:
                         raise NotImplementedError(
@@ -247,7 +234,8 @@ class BlockchainServer:
                 continue
             server.writer.write(data)
 
-    def _is_solution(self): ...
+    def _is_solution(self) -> bool:
+        return True
 
     async def controller(self):
         self.log("Starting controller")
@@ -256,16 +244,10 @@ class BlockchainServer:
             if not self.q2controller.empty():
                 event = self.q2controller.get_nowait()
                 match event:
-                    case ToldSolutionOp():
+                    case InternalSolutionTold():
                         self.log(f"Controller: Told solution recieved {event.solution}")
                         if self._is_solution():
-                            self.blockchain.append(event.solution)
-                            if len(self.blockchain) % 10 == 9:
-                                print(self.blockchain)
-                            # Come up with new problem to solve
-                            new_problem = randint(1, 64)
-                            for p in self.miners.values():
-                                p.q2m.put(OverrideProcessing(new_problem))
+                            self.start_new_processing(event.solution)
                     case _:
                         raise NotImplementedError(f"{type(event)} not supported.")
             await sleep(0.1)
@@ -273,23 +255,26 @@ class BlockchainServer:
             if not self.q2c.empty():
                 event = self.q2c.get_nowait()
                 match event:
-                    case FoundSolutionOp():
+                    case InternalSolutionFound():
                         self.log(f"Controller: Found Solution: {event.solution}")
                         await self.q2broadcaster.put(event)
-                        self.blockchain.append(event.solution)
-                        # Come up with new problem to solve
-                        new_problem = randint(1, 64)
-                        for miner_id, p in self.miners.items():
-                            if event.miner_id == miner_id:
-                                continue
-                            p.q2m.put(OverrideProcessing(new_problem))
+                        self.start_new_processing(event.solution, event.miner_id)
                     case _:
                         raise NotImplementedError(
                             f"Event {type(event)} is not recognized."
                         )
             await sleep(0.1)
 
-            ...
+    def start_new_processing(self, solution: int, miner_id: Optional[str] = None):
+        self.blockchain.append(solution)
+        if len(self.blockchain) % 10 == 9:
+            print(self.blockchain)
+        # Come up with new problem to solve
+        new_problem = randint(1, 64)
+        for miner_id, p in self.miners.items():
+            if miner_id == miner_id:
+                continue
+            p.q2m.put(InternalOverrideProcessing(new_problem))
 
     def srv(self):
         async def server(reader: StreamReader, writer: StreamWriter):
@@ -301,12 +286,12 @@ class BlockchainServer:
                 msg = (await reader.readuntil(b"\n")).decode()
                 msg = self.m.loads(msg)
                 match msg:
-                    case SolutionFound():
+                    case ExternalSolution():
                         self.log(f"server: Solution Recieved: {msg.solution}")
                         await self.q2controller.put(
-                            ToldSolutionOp(solution=msg.solution)
+                            InternalSolutionTold(solution=msg.solution)
                         )
-                    case Gossip():
+                    case ExternalGossip():
                         for addr in msg.addresses:
                             if addr not in self.other_servers and addr != self.address:
                                 self.other_servers[addr] = None
@@ -315,7 +300,7 @@ class BlockchainServer:
                             if len(self.other_servers) >= self.gossip_size
                             else list(self.other_servers.keys())
                         )
-                        writer.write(self.m.dumps(Gossip(addresses=s)).encode())
+                        writer.write(self.m.dumps(ExternalGossip(addresses=s)).encode())
                     case _:
                         raise NotImplementedError(f"Found {type(msg)}")
 
@@ -324,15 +309,15 @@ class BlockchainServer:
     @staticmethod
     def miner(
         miner_id: str,
-        q2m: MultiProcessQueue[MinerOp],
-        q2c: MultiProcessQueue[ControllerOp],
+        q2m: MultiProcessQueue[InternalMiner],
+        q2c: MultiProcessQueue[InternalController],
     ):
         # Run program to compute nonce
         while True:
             if not q2m.empty():
                 op = q2m.get_nowait()
                 match op:
-                    case OverrideProcessing():
+                    case InternalOverrideProcessing():
                         print(
                             f"!{miner_id}: Overriding due to found solution. Now solving new problem '{op.new_problem}'"
                         )
@@ -344,7 +329,7 @@ class BlockchainServer:
             solution = randint(1, 32)
             if found_solution:
                 print(f"!!!{miner_id}: Found Solution '{solution}'")
-                q2c.put(FoundSolutionOp(miner_id, solution))
+                q2c.put(InternalSolutionFound(miner_id, solution))
             else:
                 print(f"{miner_id}: No solution")
 
@@ -353,6 +338,13 @@ class BlockchainServer:
             # Check other servers for a longer blockchain
             # Check for more known servers via gossip protocol
             ...
+
+
+class ClientServer:
+    def __init__(self):
+        self.person = Person.create()
+
+    async def run(self): ...
 
 
 async def main():
