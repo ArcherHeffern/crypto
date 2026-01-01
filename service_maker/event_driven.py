@@ -1,6 +1,11 @@
 import asyncio
+from dataclasses import dataclass
 from datetime import timedelta
+from multiprocessing import Queue
+from random import choice
+from time import sleep
 from typing import (
+    Callable,
     Iterable,
     NoReturn,
     Optional,
@@ -9,24 +14,6 @@ from typing import (
 from blockchain_server import (
     INetAddress,
 )
-
-
-def periodic_function(
-    func_name: str,
-    dt: timedelta,
-    event_queue: EventQueue,
-    broadcaster: Broadcaster,
-) -> None:
-    from service_maker.service import MAPPINGS
-
-    func: PeriodicHandler = MAPPINGS[func_name]  # type: ignore
-
-    async def f() -> NoReturn:
-        while True:
-            await asyncio.sleep(dt.total_seconds())
-            await func(event_queue, broadcaster)
-
-    asyncio.run(f())
 
 
 # API
@@ -52,13 +39,26 @@ class Responder:
     def respond(self, msg: object) -> bool: ...
 
 
+@dataclass
 class EventQueue:
-    def put(self, obj: object) -> bool: ...
+    group_data: dict[type, dict[str, Queue]]
 
-    def broadcast(self, obj: object) -> bool: ...
+    def put(self, obj: object) -> bool:
+        """
+        Sends obj to a random event handler for type(obj)
+        """
+        t: type = type(obj)
+        qs = self.group_data[t]
+        random_q = choice(list(qs.values()))
+        random_q.put_nowait(obj)
+        return True
 
-    def get[T](self, obj: type[T]) -> T: ...
-
-    def try_get[T](self, obj: type[T]) -> Optional[T]: ...
-
-    def is_empty[T](self, obj: type[T]) -> T: ...
+    def broadcast(self, obj: object) -> bool:
+        """
+        Broadcasts obj to all event handlers for type(obj)
+        """
+        t: type = type(obj)
+        qs = self.group_data[t]
+        for q in qs.values():
+            q.put_nowait(obj)
+        return True
