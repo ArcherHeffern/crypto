@@ -1,7 +1,7 @@
 from datetime import timedelta
 from random import randint, sample
 from typing import Optional
-from event_driven import (
+from service_maker import (
     Broadcaster,
     EventQueue,
     ProcessGroup,
@@ -13,7 +13,7 @@ from event_driven import (
     request_handler,
     worker,
 )
-from main import (
+from blockchain_server import (
     ExternalGossip,
     ExternalSolution,
     InternalOverrideProcessing,
@@ -24,7 +24,7 @@ from main import (
 GOSSIP_SIZE = 3
 
 
-@request_handler(ExternalGossip)
+@request_handler("gossip_handler", ExternalGossip)
 async def gossip_handler(
     gossip: ExternalGossip,
     event_queue: EventQueue,
@@ -36,14 +36,14 @@ async def gossip_handler(
     responder.respond(ExternalGossip(random_addresses))
 
 
-@periodic(timedelta(minutes=1))
+@periodic("gossiper", timedelta(minutes=1))
 async def gossiper(event_queue: EventQueue, broadcaster: Broadcaster):
     broadcaster.broadcast(
         ExternalGossip(sample(list(broadcaster.get_connections()), GOSSIP_SIZE))
     )
 
 
-@worker(listen_for=InternalOverrideProcessing)  # Run for a bit of work
+@worker("miner", listen_for=InternalOverrideProcessing)  # Run for a bit of work
 async def miner(
     listen_for: Optional[InternalOverrideProcessing],
     event_queue: EventQueue,
@@ -62,7 +62,7 @@ async def miner(
             return
 
 
-@event_handler(InternalSolutionFound)
+@event_handler("i_solution_found_handler", InternalSolutionFound)
 async def i_solution_found_handler(
     solution_found: InternalSolutionFound,
     event_queue: EventQueue,
@@ -80,7 +80,7 @@ async def i_solution_found_handler(
     event_queue.broadcast(InternalOverrideProcessing(new_problem))
 
 
-@request_handler(ExternalSolution)
+@request_handler("x_solution_found_handler", ExternalSolution)
 async def x_solution_found_handler(
     solution_found: ExternalSolution,
     event_queue: EventQueue,
