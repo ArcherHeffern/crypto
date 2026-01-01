@@ -4,15 +4,15 @@ from service_maker.decorators import periodic
 from service_maker.event_driven import Broadcaster, EventQueue
 
 
-@periodic("hello_world_handler", timedelta(seconds=1))
-async def hello_world_handler(
+@periodic("hello_world_periodic", timedelta(seconds=1))
+async def hello_world_periodic(
     event_queue: EventQueue, broadcaster: Broadcaster
 ) -> None:
     print("Hello world")
 
 
 def main() -> None:
-    s = Service(config={"hello_world": ProcessGroup(hello_world_handler)})
+    s = Service(config={"hello_world": ProcessGroup(hello_world_periodic)})
     s.run()
 
 
