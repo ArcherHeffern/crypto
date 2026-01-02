@@ -133,8 +133,10 @@ def network_handler_function(
             r = conn.reader
             try:
                 while True:
+                    # TODO: This is not loading correctly. Is loading into a dict instead of as the object
                     o = await marshaller.load_stream(r)
                     if o:
+                        print(type(o), o)
                         await inbound_queue.put(MsgFrom(peer_id=peer_id, msg=o))
             finally:
                 # treat EOF as disconnect
@@ -173,16 +175,22 @@ def network_handler_function(
                 match event:
                     case Connect():
                         if event.address not in address_to_peer_id:
-                            r, w = await open_connection(
-                                event.address.host, event.address.port
-                            )
-                            peer_id = nxt_peer_id
-                            nxt_peer_id += 1
-                            t = create_task(reader(peer_id))
-                            peer_id_to_connection[peer_id] = Connection(
-                                peer_id, event.address, r, w, t
-                            )
-                            address_to_peer_id[event.address] = peer_id
+                            try:
+                                r, w = await open_connection(
+                                    event.address.host, event.address.port
+                                )
+                                peer_id = nxt_peer_id
+                                nxt_peer_id += 1
+                                t = create_task(reader(peer_id))
+                                peer_id_to_connection[peer_id] = Connection(
+                                    peer_id, event.address, r, w, t
+                                )
+                                address_to_peer_id[event.address] = peer_id
+                            except:
+                                print(
+                                    f"Failed to connect to {event.address.host}:{event.address.port}. Retrying..."
+                                )
+                                outbound_queue.put(event)
                     case Disconnect():
                         if event.peer_id in peer_id_to_connection:
                             connection = peer_id_to_connection[event.peer_id]
@@ -190,8 +198,8 @@ def network_handler_function(
                     case Broadcast():
                         for peer_id, connection in peer_id_to_connection.items():
                             if (
-                                event.exclude_peer_ids
-                                and peer_id not in event.exclude_peer_ids
+                                not event.exclude_peer_ids
+                                or peer_id not in event.exclude_peer_ids
                             ):
                                 marshaller.dump_stream(event.msg, connection.writer)
                     case Send():
@@ -285,14 +293,14 @@ class Service:
         processes_to_run.append(
             (
                 network_handler_function,
-                (group_data, network_queue, self.addr, self.known_addresses),
+                (group_data, network_queue, self.addr, self.known_addresses or []),
             )
         )
         for target, args in processes_to_run:
             p = Process(
                 target=target,
                 args=(*args,),
-                # daemon=True,
+                daemon=True,
             )
             p.start()
             self.processes.append(p)
