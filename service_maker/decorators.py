@@ -3,7 +3,13 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Awaitable, Callable, Optional
 
-from service_maker.event_driven import Broadcaster, EventQueue, Responder
+from service_maker.event_driven import (
+    Broadcaster,
+    EventQueue,
+    PeerConnected,
+    PeerDisconnected,
+    Responder,
+)
 
 
 @dataclass
@@ -11,18 +17,30 @@ class HandlerAndData(ABC):
     name: str
 
 
-type RequestHandler[T] = Callable[
+type PeerId = str
+
+
+@dataclass
+class MsgFrom(ABC):
+    peer_id: PeerId
+
+
+@dataclass
+class MsgTo(ABC): ...
+
+
+type RequestHandler[T: MsgFrom] = Callable[
     [T, EventQueue, Broadcaster, Responder], Awaitable[None]
 ]
 
 
 @dataclass
-class RequestHandlerAndData[T](HandlerAndData):
+class RequestHandlerAndData[T: MsgFrom](HandlerAndData):
     handler: RequestHandler[T]
     t: type[T]
 
 
-def request_handler[T](
+def request_handler[T: MsgFrom](
     name: str,
     msg_type: type[T],
 ) -> Callable[[RequestHandler[T]], RequestHandlerAndData]:
@@ -89,7 +107,7 @@ class EventHandlerAndData[T](HandlerAndData):
     t: type[T]
 
 
-def event_handler[T](name: str, t: type[T]):
+def event_handler[T: object | PeerConnected | PeerDisconnected](name: str, t: type[T]):
     def decorator(func: EventHandler[T]) -> EventHandlerAndData[T]:
         from service_maker.service import MAPPINGS
 

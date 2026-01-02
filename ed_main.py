@@ -8,6 +8,7 @@ from service_maker import (
     Broadcaster,
     EventQueue,
 )
+from service_maker.event_driven import PeerConnected
 
 
 @dataclass
@@ -26,6 +27,15 @@ async def frog_periodic(event_queue: EventQueue, broadcaster: Broadcaster) -> No
 @event_handler("frog_handler", Frog)
 async def frog_handler(frog: Frog, event_queue: EventQueue, broadcaster: Broadcaster):
     print(f"Frog '{frog.name}' says {frog.say}")
+
+
+@event_handler("peer_connected_handler", PeerConnected)
+async def peer_connected_handler(
+    peer_connected: PeerConnected, event_queue: EventQueue, broadcaster: Broadcaster
+):
+    print(
+        f"Connected to peer {peer_connected.address} with id {peer_connected.peer_id}"
+    )
 
 
 def main() -> None:

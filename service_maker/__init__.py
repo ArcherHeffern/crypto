@@ -9,6 +9,10 @@ from .decorators import (
     periodic,
     request_handler,
     worker,
+    MsgFrom,
+    MsgTo,
+    PeerConnected,
+    PeerDisconnected,
 )
 from .service_config import (
     ThreadGroup,

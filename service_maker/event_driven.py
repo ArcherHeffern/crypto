@@ -1,4 +1,4 @@
-import asyncio
+from asyncio import StreamReader, StreamWriter, open_connection
 from dataclasses import dataclass
 from datetime import timedelta
 from multiprocessing import Queue
@@ -14,29 +14,43 @@ from typing import (
 from blockchain_server import (
     INetAddress,
 )
+from service_maker.decorators import PeerId, MsgTo
+
+
+@dataclass(frozen=True)
+class PeerConnected:
+    peer_id: str
+    address: INetAddress
+    inbound: bool
+
+
+@dataclass(frozen=True)
+class PeerDisconnected:
+    peer_id: str
+    address: INetAddress
+    reason: str
 
 
 # API
 
 
+@dataclass
 class Broadcaster:
-    def connect(self, address: INetAddress): ...
+    def connect(self, address: INetAddress) -> Optional[PeerId]: ...
 
-    def disconnect(self, address: INetAddress): ...
+    def disconnect(self, address: PeerId): ...
 
-    def broadcast(self, obj: object): ...
+    def broadcast(self, obj: MsgTo): ...
 
-    def send(self, address: INetAddress, obj: object): ...
+    def send(self, address: PeerId, obj: MsgTo): ...
 
-    def get_connections(self) -> Iterable[INetAddress]: ...
+    def get_peer_ids(self) -> Iterable[PeerId]: ...
 
-    def add_connection(self, address: INetAddress) -> bool: ...
-
-    def add_connections(self, addresses: Iterable[INetAddress]) -> bool: ...
+    def get_addresses(self) -> Iterable[INetAddress]: ...
 
 
 class Responder:
-    def respond(self, msg: object) -> bool: ...
+    def respond(self, msg: MsgTo) -> bool: ...
 
 
 @dataclass

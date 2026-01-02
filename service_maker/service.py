@@ -57,6 +57,9 @@ def event_handler_function(
     asyncio.run(f())
 
 
+def network_handler_function(config): ...
+
+
 class Service:
     def __init__(
         self, config: dict[str, ThreadGroup | ProcessGroup], debug: bool = False
