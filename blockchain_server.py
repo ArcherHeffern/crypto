@@ -23,7 +23,7 @@ from asyncio import (
 )
 from bitcoin import Block
 from crypto import Person
-from marshall import DataclassMarshaller
+from marshall.marshall import DataclassMarshaller
 
 
 # Task : Allows me to group things together or just run something in the background

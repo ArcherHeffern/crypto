@@ -1,7 +1,5 @@
-from .service import Service
+from .service import Service, marshaller
 from .event_driven import (
-    Broadcaster,
-    Responder,
     EventQueue,
 )
 from .decorators import (
@@ -13,6 +11,8 @@ from .decorators import (
     MsgTo,
     PeerConnected,
     PeerDisconnected,
+    Broadcaster,
+    Responder,
 )
 from .service_config import (
     ThreadGroup,

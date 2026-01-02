@@ -1,14 +1,15 @@
 from abc import ABC
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Awaitable, Callable, Optional
+from multiprocessing import Queue
+from typing import Awaitable, Callable, Iterable, Optional
 
+from blockchain_server import INetAddress
 from service_maker.event_driven import (
-    Broadcaster,
     EventQueue,
     PeerConnected,
     PeerDisconnected,
-    Responder,
+    PeerId,
 )
 
 
@@ -17,30 +18,28 @@ class HandlerAndData(ABC):
     name: str
 
 
-type PeerId = str
-
-
 @dataclass
-class MsgFrom(ABC):
+class MsgFrom[T: MsgTo](ABC):
     peer_id: PeerId
+    msg: T
 
 
 @dataclass
 class MsgTo(ABC): ...
 
 
-type RequestHandler[T: MsgFrom] = Callable[
-    [T, EventQueue, Broadcaster, Responder], Awaitable[None]
+type RequestHandler[T: MsgTo] = Callable[
+    [MsgFrom[T], EventQueue, Broadcaster, Responder], Awaitable[None]
 ]
 
 
 @dataclass
-class RequestHandlerAndData[T: MsgFrom](HandlerAndData):
+class RequestHandlerAndData[T: MsgTo](HandlerAndData):
     handler: RequestHandler[T]
     t: type[T]
 
 
-def request_handler[T: MsgFrom](
+def request_handler[T: MsgTo](
     name: str,
     msg_type: type[T],
 ) -> Callable[[RequestHandler[T]], RequestHandlerAndData]:
@@ -115,3 +114,56 @@ def event_handler[T: object | PeerConnected | PeerDisconnected](name: str, t: ty
         return EventHandlerAndData(name, func, t)
 
     return decorator
+
+
+@dataclass
+class NetworkEvent: ...
+
+
+@dataclass
+class Connect(NetworkEvent):
+    address: INetAddress
+
+
+@dataclass
+class Disconnect(NetworkEvent):
+    peer_id: PeerId
+
+
+@dataclass
+class Broadcast(NetworkEvent):
+    msg: MsgTo
+    exclude_peer_ids: Optional[list[PeerId]] = None
+
+
+@dataclass
+class Send(NetworkEvent):
+    peer_id: PeerId
+    msg: MsgTo
+
+
+@dataclass
+class Broadcaster:
+    q: Queue[NetworkEvent]
+
+    def connect(self, address: INetAddress) -> Optional[PeerId]:
+        self.q.put_nowait(Connect(address))
+
+    def disconnect(self, address: PeerId):
+        self.q.put_nowait(Disconnect(address))
+
+    def broadcast(self, msg: MsgTo, exclude_peer_ids: Optional[list[PeerId]] = None):
+        self.q.put_nowait(Broadcast(msg, exclude_peer_ids))
+
+    def send(self, address: PeerId, msg: MsgTo):
+        self.q.put_nowait(Send(address, msg))
+
+    def get_peer_ids(self) -> Iterable[PeerId]:
+        raise NotImplementedError("get_peer_ids is not implemented")
+
+    def get_addresses(self) -> Iterable[INetAddress]:
+        raise NotImplementedError("get_addresses is not implemented")
+
+
+class Responder:
+    def respond(self, msg: MsgTo) -> bool: ...

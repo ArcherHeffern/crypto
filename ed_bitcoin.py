@@ -3,10 +3,8 @@ from datetime import timedelta
 from random import randint, sample
 from typing import Optional
 from service_maker import (
-    Broadcaster,
     EventQueue,
     ProcessGroup,
-    Responder,
     ThreadGroup,
     event_handler,
     periodic,
@@ -19,10 +17,11 @@ from blockchain_server import (
     InternalSolutionFound,
 )
 from service_maker import MsgFrom, MsgTo, Service
+from service_maker.decorators import Broadcaster, Responder
 
 
 @dataclass
-class GossipRequest(MsgFrom):
+class GossipRequest(MsgTo):
     addresses: list[INetAddress]
 
 
@@ -32,7 +31,7 @@ class GossipResponse(MsgTo):
 
 
 @dataclass
-class SolutionFoundRequest(MsgFrom):
+class SolutionFoundRequest(MsgTo):
     solution: int
 
 
@@ -44,17 +43,28 @@ class SolutionFoundBroadcast(MsgTo):
 GOSSIP_SIZE = 3
 
 
-@request_handler("gossip_handler", GossipRequest)
-async def gossip_handler(
-    gossip: GossipRequest,
+@request_handler("gossip_request_handler", GossipRequest)
+async def gossip_request_handler(
+    gossip: MsgFrom[GossipRequest],
     event_queue: EventQueue,
     broadcaster: Broadcaster,
     responder: Responder,
 ):
     random_addresses = sample(list(broadcaster.get_addresses()), GOSSIP_SIZE)
-    for address in gossip.addresses:
+    for address in gossip.msg.addresses:
         broadcaster.connect(address)
     responder.respond(GossipResponse(random_addresses))
+
+
+@request_handler("gossip_response_handler", GossipResponse)
+async def gossip_response_handler(
+    gossip: MsgFrom[GossipResponse],
+    event_queue: EventQueue,
+    broadcaster: Broadcaster,
+    responder: Responder,
+):
+    for address in gossip.msg.addresses:
+        broadcaster.connect(address)
 
 
 @periodic("gossiper", timedelta(minutes=1))
@@ -103,7 +113,7 @@ async def i_solution_found_handler(
 
 @request_handler("x_solution_found_handler", SolutionFoundRequest)
 async def x_solution_found_handler(
-    solution_found: SolutionFoundRequest,
+    solution_found: MsgFrom[SolutionFoundRequest],
     event_queue: EventQueue,
     broadcaster: Broadcaster,
     responder: Responder,
@@ -113,17 +123,20 @@ async def x_solution_found_handler(
     # Append to blockchain
     ...
     # Broadcast solution
-    event_queue.broadcast(InternalOverrideProcessing(solution_found.solution))
+    event_queue.broadcast(InternalOverrideProcessing(solution_found.msg.solution))
     # Look at backlogged transactions for new problem
     new_problem = 1
     # Override processing
-    broadcaster.broadcast(SolutionFoundBroadcast(new_problem))
 
 
 s = Service(
     {
         "thread": ThreadGroup(
-            gossip_handler, gossiper, i_solution_found_handler, x_solution_found_handler
+            gossip_request_handler,
+            gossip_response_handler,
+            gossiper,
+            i_solution_found_handler,
+            x_solution_found_handler,
         ),
         "workers": ProcessGroup(miner, miner),
     }

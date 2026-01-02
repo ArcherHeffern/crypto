@@ -1,0 +1,1 @@
+from .marshall import DataclassMarshaller

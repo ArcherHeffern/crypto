@@ -1,4 +1,5 @@
 from abc import ABC
+from asyncio import StreamReader, StreamWriter
 from dataclasses import dataclass, is_dataclass, fields
 from itertools import islice
 from json import dumps as json_dumps, loads as json_loads
@@ -30,13 +31,20 @@ class DataclassMarshaller(Generic[TBase]):
 
     # ---------- Public API ----------
 
-    def dumps(self, obj: TBase, has_newline=True) -> str:
-        return json_dumps(self._encode_value(obj)) + "\n" if has_newline else ""
+    def dumps(self, obj: TBase) -> str:
+        return json_dumps(self._encode_value(obj))
 
     def loads(self, s: str) -> Optional[TBase]:
         raw = json_loads(s)
         out = self._decode_value(raw)
         return out  # type: ignore[return-value]
+
+    def dump_stream(self, obj: TBase, writer: StreamWriter) -> None:
+        writer.write((self.dumps(obj) + "\n").encode())
+
+    async def load_stream(self, reader: StreamReader) -> Optional[TBase]:
+        b = await reader.readuntil(b"\n")
+        return self.loads(b.decode())
 
     # ---------- Recursive encoding/decoding ----------
 

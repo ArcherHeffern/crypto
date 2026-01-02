@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 from datetime import timedelta
+from multiprocessing import Process
+from blockchain_server import INetAddress
 from service_maker import (
     Service,
     ProcessGroup,
@@ -39,10 +41,20 @@ async def peer_connected_handler(
 
 
 def main() -> None:
-    s = Service(
-        config={"hello_world": ProcessGroup(frog_periodic, frog_handler)}, debug=True
+    s1 = Service(
+        config={"hello_world": ProcessGroup(frog_periodic, frog_handler)},
+        debug=True,
+        known_addresses=[INetAddress("127.0.0.1", 8081)],
     )
-    s.run()
+    s2 = Service(
+        config={"hello_world": ProcessGroup(frog_periodic, frog_handler)},
+        debug=True,
+        addr=INetAddress("127.0.0.1", 8081),
+    )
+    s1.run()
+    s2.run()
+    s1.join()
+    s2.join()
 
 
 if __name__ == "__main__":
