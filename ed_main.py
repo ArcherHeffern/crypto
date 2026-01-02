@@ -10,6 +10,8 @@ from service_maker import (
     Broadcaster,
     EventQueue,
 )
+from service_maker import MsgTo
+from service_maker.decorators import MsgFrom
 from service_maker.event_driven import PeerConnected
 
 
@@ -17,6 +19,11 @@ from service_maker.event_driven import PeerConnected
 class Frog:
     name: str
     say: str
+
+
+@dataclass
+class FrogMsg(MsgTo):
+    heller: str
 
 
 @periodic("frog_periodic", timedelta(seconds=1))
@@ -29,6 +36,14 @@ async def frog_periodic(event_queue: EventQueue, broadcaster: Broadcaster) -> No
 @event_handler("frog_handler", Frog)
 async def frog_handler(frog: Frog, event_queue: EventQueue, broadcaster: Broadcaster):
     print(f"Frog '{frog.name}' says {frog.say}")
+    broadcaster.broadcast(FrogMsg("Networking is working!"))
+
+
+@event_handler("frog_msg_handler", MsgFrom[FrogMsg])
+async def frog_msg_handler(
+    frog: MsgFrom[FrogMsg], event_queue: EventQueue, broadcaster: Broadcaster
+):
+    print(frog.msg)
 
 
 @event_handler("peer_connected_handler", PeerConnected)

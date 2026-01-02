@@ -46,7 +46,7 @@ marshaller = DataclassMarshaller[MsgTo]()
 def periodic_function(
     func_name: str,
     dt: timedelta,
-    event_queue: EventQueue,
+    group_data: dict[type, dict[str, Queue]],
     network_queue: Queue,
 ) -> None:
     from .service import MAPPINGS
@@ -56,7 +56,7 @@ def periodic_function(
     async def f() -> NoReturn:
         while True:
             await asyncio.sleep(dt.total_seconds())
-            await func(event_queue, Broadcaster(network_queue))
+            await func(EventQueue(group_data), Broadcaster(network_queue))
 
     run(f())
 
@@ -64,7 +64,7 @@ def periodic_function(
 def event_handler_function(
     func_name: str,
     q: Queue,
-    event_queue: EventQueue,
+    group_data: dict[type, dict[str, Queue]],
     network_queue: Queue,
 ):
     from .service import MAPPINGS
@@ -75,10 +75,10 @@ def event_handler_function(
         while True:
             try:
                 v = q.get(timeout=0.2)
-                await func(v, event_queue, Broadcaster(network_queue))
+                await func(v, EventQueue(group_data), Broadcaster(network_queue))
             except:
                 ...
-            sleep(0.1)
+            await asyncio.sleep(0.1)
 
     run(f())
 
@@ -163,7 +163,7 @@ def network_handler_function(
                 address_to_peer_id[address] = peer_id
 
         # Waits for connections and adds them to our connection data structures
-        s = start_server(cb, server_address.host, server_address.port)
+        s = await start_server(cb, server_address.host, server_address.port)
         broadcaster = Broadcaster(outbound_queue)
 
         while True:
@@ -230,6 +230,9 @@ class Service:
         self.known_addresses = known_addresses
         self.processes: list[Process] = []
 
+        self.group_data: dict[type, dict[str, Queue]] = {}
+        self.network_queue: Queue = Queue()
+
     def log(self, msg: str):
         if self.debug:
             print(msg)
@@ -240,9 +243,8 @@ class Service:
         # Create processes for all queues
 
         # type -> handler_name -> queue
-        group_data: dict[type, dict[str, Queue]] = {}
-        event_queue = EventQueue(group_data)
-        network_queue = Queue()
+        group_data: dict[type, dict[str, Queue]] = self.group_data
+        network_queue = self.network_queue
         processes_to_run: list[tuple[Callable, tuple]] = []
         for group_name, group in self.config.items():
             match group:
@@ -259,7 +261,7 @@ class Service:
                                 args = (
                                     process.name,
                                     process.dt,
-                                    event_queue,
+                                    group_data,
                                     network_queue,
                                 )
                                 processes_to_run.append((target, args))
@@ -272,7 +274,7 @@ class Service:
                                 args = (
                                     process.name,
                                     this_q,
-                                    event_queue,
+                                    group_data,
                                     network_queue,
                                 )
                                 processes_to_run.append((target, args))
@@ -283,14 +285,14 @@ class Service:
         processes_to_run.append(
             (
                 network_handler_function,
-                (group_data, network_queue, self.addr),
+                (group_data, network_queue, self.addr, self.known_addresses),
             )
         )
         for target, args in processes_to_run:
             p = Process(
                 target=target,
                 args=(*args,),
-                daemon=True,
+                # daemon=True,
             )
             p.start()
             self.processes.append(p)
