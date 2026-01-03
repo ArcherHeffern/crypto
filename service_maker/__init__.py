@@ -11,8 +11,7 @@ from .decorators import (
     MsgTo,
     PeerConnected,
     PeerDisconnected,
-    Broadcaster,
-    Responder,
+    Networker,
 )
 from .service_config import (
     ThreadGroup,

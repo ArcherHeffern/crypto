@@ -18,7 +18,7 @@ from typing import Callable, NoReturn, Optional
 from blockchain_server import INetAddress
 from .decorators import (
     Broadcast,
-    Broadcaster,
+    Networker,
     Connect,
     Disconnect,
     EventHandler,
@@ -29,6 +29,7 @@ from .decorators import (
     NetworkEvent,
     PeerId,
     PeriodicHandlerAndData,
+    RequestHandlerAndData,
     Send,
 )
 from .event_driven import (
@@ -41,6 +42,7 @@ MAPPINGS: dict[str, Handler] = {}
 from marshall import DataclassMarshaller
 
 marshaller = DataclassMarshaller[MsgTo]()
+marshaller.register("msg_to", MsgTo)
 
 
 def periodic_function(
@@ -56,7 +58,7 @@ def periodic_function(
     async def f() -> NoReturn:
         while True:
             await asyncio.sleep(dt.total_seconds())
-            await func(EventQueue(group_data), Broadcaster(network_queue))
+            await func(EventQueue(group_data), Networker(network_queue))
 
     run(f())
 
@@ -75,7 +77,7 @@ def event_handler_function(
         while True:
             try:
                 v = q.get(timeout=0.2)
-                await func(v, EventQueue(group_data), Broadcaster(network_queue))
+                await func(v, EventQueue(group_data), Networker(network_queue))
             except:
                 ...
             await asyncio.sleep(0.1)
@@ -105,7 +107,6 @@ def network_handler_function(
         peer_id_to_connection: dict[PeerId, Connection] = {}
         address_to_peer_id: dict[INetAddress, PeerId] = {}
         nxt_peer_id = 1
-        inbound_queue = asyncio.Queue[MsgFrom]()
         event_queue = asyncio.Queue()
 
         async def disconnect_peer(peer_id: PeerId) -> None:
@@ -133,11 +134,10 @@ def network_handler_function(
             r = conn.reader
             try:
                 while True:
-                    # TODO: This is not loading correctly. Is loading into a dict instead of as the object
                     o = await marshaller.load_stream(r)
                     if o:
-                        print(type(o), o)
-                        await inbound_queue.put(MsgFrom(peer_id=peer_id, msg=o))
+                        for q in group_data[type(o)].values():
+                            q.put(MsgFrom(peer_id=peer_id, msg=o))
             finally:
                 # treat EOF as disconnect
                 await event_queue.put(
@@ -166,7 +166,7 @@ def network_handler_function(
 
         # Waits for connections and adds them to our connection data structures
         s = await start_server(cb, server_address.host, server_address.port)
-        broadcaster = Broadcaster(outbound_queue)
+        broadcaster = Networker(outbound_queue)
 
         while True:
             # Event Handler
@@ -212,12 +212,12 @@ def network_handler_function(
                         )
             await asyncio.sleep(0.1)
             # Handle inbound_queue event dispatching
-            if not inbound_queue.empty():
-                event = await inbound_queue.get()
-                t = type(event.msg)
-                if t in group_data:
-                    for q in group_data[t].values():
-                        q.put(event)
+            # if not inbound_queue.empty():
+            #     event = await inbound_queue.get()
+            #     t = type(event.msg)
+            #     if t in group_data:
+            #         for q in group_data[t].values():
+            #             q.put(event)
 
             # Handle event_queue event dispatching
 
@@ -273,7 +273,7 @@ class Service:
                                     network_queue,
                                 )
                                 processes_to_run.append((target, args))
-                            case EventHandlerAndData():
+                            case EventHandlerAndData() | RequestHandlerAndData():
                                 if not group_data.get(process.t):
                                     group_data[process.t] = {}
                                 this_q = Queue()

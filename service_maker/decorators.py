@@ -29,7 +29,7 @@ class MsgTo(ABC): ...
 
 
 type RequestHandler[T: MsgTo] = Callable[
-    [MsgFrom[T], EventQueue, Broadcaster, Responder], Awaitable[None]
+    [MsgFrom[T], EventQueue, Networker], Awaitable[None]
 ]
 
 
@@ -52,7 +52,7 @@ def request_handler[T: MsgTo](
     return decorator
 
 
-type PeriodicHandler = Callable[[EventQueue, Broadcaster], Awaitable[None]]
+type PeriodicHandler = Callable[[EventQueue, Networker], Awaitable[None]]
 
 
 @dataclass
@@ -75,7 +75,7 @@ def periodic(
 
 
 type WorkerHandler[T] = Callable[
-    [Optional[T], EventQueue, Broadcaster, dict], Awaitable[None]
+    [Optional[T], EventQueue, Networker, dict], Awaitable[None]
 ]
 
 
@@ -95,18 +95,18 @@ def worker[T](name: str, listen_for: Optional[type[T]]):
     return decorator
 
 
-type EventHandler[T] = Callable[[T, EventQueue, Broadcaster], Awaitable[None]]
+type EventHandler[T] = Callable[[T, EventQueue, Networker], Awaitable[None]]
 
 type Handler[T] = RequestHandler | PeriodicHandler | WorkerHandler | EventHandler
 
 
 @dataclass
-class EventHandlerAndData[T](HandlerAndData):
+class EventHandlerAndData[T: MsgTo | PeerConnected | PeerDisconnected](HandlerAndData):
     handler: EventHandler[T]
     t: type[T]
 
 
-def event_handler[T: object | PeerConnected | PeerDisconnected](name: str, t: type[T]):
+def event_handler[T: MsgTo | PeerConnected | PeerDisconnected](name: str, t: type[T]):
     def decorator(func: EventHandler[T]) -> EventHandlerAndData[T]:
         from service_maker.service import MAPPINGS
 
@@ -143,7 +143,7 @@ class Send(NetworkEvent):
 
 
 @dataclass
-class Broadcaster:
+class Networker:
     q: Queue[NetworkEvent]
 
     def connect(self, address: INetAddress) -> Optional[PeerId]:
@@ -163,7 +163,3 @@ class Broadcaster:
 
     def get_addresses(self) -> Iterable[INetAddress]:
         raise NotImplementedError("get_addresses is not implemented")
-
-
-class Responder:
-    def respond(self, msg: MsgTo) -> bool: ...

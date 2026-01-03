@@ -17,7 +17,7 @@ from blockchain_server import (
     InternalSolutionFound,
 )
 from service_maker import MsgFrom, MsgTo, Service
-from service_maker.decorators import Broadcaster, Responder
+from service_maker.decorators import Networker, Responder
 
 
 @dataclass
@@ -47,7 +47,7 @@ GOSSIP_SIZE = 3
 async def gossip_request_handler(
     gossip: MsgFrom[GossipRequest],
     event_queue: EventQueue,
-    broadcaster: Broadcaster,
+    broadcaster: Networker,
     responder: Responder,
 ):
     random_addresses = sample(list(broadcaster.get_addresses()), GOSSIP_SIZE)
@@ -60,7 +60,7 @@ async def gossip_request_handler(
 async def gossip_response_handler(
     gossip: MsgFrom[GossipResponse],
     event_queue: EventQueue,
-    broadcaster: Broadcaster,
+    broadcaster: Networker,
     responder: Responder,
 ):
     for address in gossip.msg.addresses:
@@ -68,7 +68,7 @@ async def gossip_response_handler(
 
 
 @periodic("gossiper", timedelta(minutes=1))
-async def gossiper(event_queue: EventQueue, broadcaster: Broadcaster):
+async def gossiper(event_queue: EventQueue, broadcaster: Networker):
     broadcaster.broadcast(
         GossipResponse(sample(list(broadcaster.get_addresses()), GOSSIP_SIZE))
     )
@@ -78,7 +78,7 @@ async def gossiper(event_queue: EventQueue, broadcaster: Broadcaster):
 async def miner(
     listen_for: Optional[InternalOverrideProcessing],
     event_queue: EventQueue,
-    _: Broadcaster,
+    _: Networker,
     state: dict,
 ):
     if listen_for:
@@ -97,7 +97,7 @@ async def miner(
 async def i_solution_found_handler(
     solution_found: InternalSolutionFound,
     event_queue: EventQueue,
-    broadcaster: Broadcaster,
+    broadcaster: Networker,
 ):
     # Validate solution by index
     ...
@@ -115,7 +115,7 @@ async def i_solution_found_handler(
 async def x_solution_found_handler(
     solution_found: MsgFrom[SolutionFoundRequest],
     event_queue: EventQueue,
-    broadcaster: Broadcaster,
+    broadcaster: Networker,
     responder: Responder,
 ):
     # If is valid solution
