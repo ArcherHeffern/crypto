@@ -1,8 +1,7 @@
 from dataclasses import dataclass
 from datetime import timedelta
-from multiprocessing import Process
 from blockchain_server import INetAddress
-from service_maker import (
+from p2p_framework import (
     Service,
     ProcessGroup,
     event_handler,
@@ -10,9 +9,9 @@ from service_maker import (
     Networker,
     EventQueue,
 )
-from service_maker import MsgTo, marshaller
-from service_maker.decorators import MsgFrom, request_handler
-from service_maker.event_driven import PeerConnected
+from p2p_framework import MsgTo, marshaller
+from p2p_framework.decorators import MsgFrom, request_handler
+from p2p_framework.event_driven import PeerConnected
 
 
 # ============

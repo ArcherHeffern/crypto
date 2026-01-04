@@ -13,6 +13,7 @@ from typing import (
 from blockchain_server import (
     INetAddress,
 )
+from p2p_framework.decorators import MsgTo
 
 type PeerId = int
 
@@ -48,7 +49,7 @@ class EventQueue:
         random_q.put_nowait(obj)
         return True
 
-    def broadcast(self, obj: object) -> bool:
+    def broadcast(self, obj: MsgTo) -> bool:
         """
         Broadcasts obj to all event handlers for type(obj)
         """

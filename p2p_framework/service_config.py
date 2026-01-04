@@ -1,4 +1,4 @@
-from service_maker.decorators import HandlerAndData
+from p2p_framework.decorators import HandlerAndData
 
 
 class ThreadGroup:

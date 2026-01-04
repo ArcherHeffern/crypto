@@ -5,7 +5,7 @@ from multiprocessing import Queue
 from typing import Awaitable, Callable, Iterable, Optional
 
 from blockchain_server import INetAddress
-from service_maker.event_driven import (
+from p2p_framework.event_driven import (
     EventQueue,
     PeerConnected,
     PeerDisconnected,
@@ -44,7 +44,7 @@ def request_handler[T: MsgTo](
     msg_type: type[T],
 ) -> Callable[[RequestHandler[T]], RequestHandlerAndData]:
     def decorator(func: RequestHandler[T]) -> RequestHandlerAndData:
-        from service_maker.service import MAPPINGS
+        from p2p_framework.service import MAPPINGS
 
         MAPPINGS[name] = func
         return RequestHandlerAndData(name, func, msg_type)
@@ -66,7 +66,7 @@ def periodic(
 ) -> Callable[[PeriodicHandler], PeriodicHandlerAndData]:
 
     def decorator(func: PeriodicHandler) -> PeriodicHandlerAndData:
-        from service_maker.service import MAPPINGS
+        from p2p_framework.service import MAPPINGS
 
         MAPPINGS[name] = func
         return PeriodicHandlerAndData(name, func, dt)
@@ -87,7 +87,7 @@ class WorkerHandlerAndData[T](HandlerAndData):
 
 def worker[T](name: str, listen_for: Optional[type[T]]):
     def decorator(func: WorkerHandler[T]) -> WorkerHandlerAndData[T]:
-        from service_maker.service import MAPPINGS
+        from p2p_framework.service import MAPPINGS
 
         MAPPINGS[name] = func
         return WorkerHandlerAndData(name, func, listen_for)
@@ -108,7 +108,7 @@ class EventHandlerAndData[T: MsgTo | PeerConnected | PeerDisconnected](HandlerAn
 
 def event_handler[T: MsgTo | PeerConnected | PeerDisconnected](name: str, t: type[T]):
     def decorator(func: EventHandler[T]) -> EventHandlerAndData[T]:
-        from service_maker.service import MAPPINGS
+        from p2p_framework.service import MAPPINGS
 
         MAPPINGS[name] = func
         return EventHandlerAndData(name, func, t)
