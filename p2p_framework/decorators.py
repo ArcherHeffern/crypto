@@ -7,6 +7,7 @@ from typing import Awaitable, Callable, Iterable, Optional
 from blockchain_server import INetAddress
 from p2p_framework.event_driven import (
     EventQueue,
+    MsgTo,
     PeerConnected,
     PeerDisconnected,
     PeerId,
@@ -22,10 +23,6 @@ class HandlerAndData(ABC):
 class MsgFrom[T: MsgTo](ABC):
     peer_id: PeerId
     msg: T
-
-
-@dataclass
-class MsgTo(ABC): ...
 
 
 type RequestHandler[T: MsgTo] = Callable[

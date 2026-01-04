@@ -1,19 +1,16 @@
+from abc import ABC
 from dataclasses import dataclass
-from datetime import timedelta
 from multiprocessing import Queue
 from random import choice
-from time import sleep
-from typing import (
-    Callable,
-    Iterable,
-    NoReturn,
-    Optional,
-)
 
 from blockchain_server import (
     INetAddress,
 )
-from p2p_framework.decorators import MsgTo
+
+
+@dataclass
+class MsgTo(ABC): ...
+
 
 type PeerId = int
 
